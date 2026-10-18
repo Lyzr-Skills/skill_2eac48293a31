@@ -1,143 +1,230 @@
-# PDF Summariser Skill
-
-## Overview
-This skill extracts text from one or more PDF files and generates structured, intelligent summaries using an LLM (OpenAI GPT). It supports single-page, multi-page, and multi-document summarisation with configurable summary depth and output formats.
-
+---
+name: pdf-summarizer
+description: Knowledge and utilities for extracting, validating, and summarizing PDF documents. Use when users ask to summarize a PDF, create executive summaries, extract key points, generate section-wise summaries, or identify action items from PDF content.
+license: Complete terms in LICENSE.txt
 ---
 
-## Features
-- **EXTRACT** text from PDF files using `pdfplumber`
-- **SUMMARISE** content using OpenAI GPT models
-- **CONFIGURABLE** summary depth: `short`, `medium`, `detailed`
-- **MULTI-DOCUMENT** support — summarise multiple PDFs at once
-- **STRUCTURED OUTPUT** — plain text, bullet points, or JSON
-- **SECTION-AWARE** — attempts to identify and summarise sections/chapters individually
-- **KEYWORD EXTRACTION** — pulls key topics/themes from the document
-- **EXPORT** summaries to `.txt` or `.json` files
+# PDF Summarizer
 
----
+A toolkit providing utilities and guidance for reliably extracting and summarizing PDF documents.
 
-## File Structure
+## Supported Tasks
+
+Use this skill when the user asks to:
+- Summarize an entire PDF.
+- Create a short, medium, or detailed summary.
+- Produce an executive summary.
+- Summarize page-by-page or section-by-section.
+- Extract key points, findings, decisions, risks, or action items.
+- Focus the summary on specific topics or keywords.
+- Validate whether a PDF contains usable extractable text.
+
+## Core Principles
+
+### Stay grounded in the PDF
+Summaries must be based on the content actually present in the document.
+- Do not invent facts, numbers, names, dates, or conclusions.
+- Preserve important terminology used in the source.
+- Clearly state when requested information is not present in the PDF.
+- Distinguish source content from any additional interpretation.
+
+### Preserve important details
+Prioritize:
+- Main purpose and conclusions.
+- Important facts, metrics, dates, names, and requirements.
+- Decisions, risks, dependencies, and action items.
+- Repeated themes and high-impact findings.
+
+Do not over-focus on boilerplate, repeated headers/footers, or low-value text.
+
+### Handle long PDFs in chunks
+For large PDFs:
+1. Extract page text.
+2. Split the document into logical chunks or page ranges.
+3. Summarize each chunk.
+4. Merge chunk summaries into one coherent final summary.
+5. Remove duplicates while preserving important details.
+
+## Recommended Summary Formats
+
+### Quick Summary
+Best for a fast overview.
+
+```text
+Summary
+- Main point 1
+- Main point 2
+- Main point 3
 ```
-pdf_summariser/
-├── SKILL.md               # This file
-├── main.py                # Entry point
-├── extractor.py           # PDF text extraction logic
-├── summariser.py          # LLM summarisation logic
-├── utils.py               # Helpers (chunking, formatting, export)
-└── requirements.txt       # Dependencies
+
+### Executive Summary
+Best for business or stakeholder documents.
+
+```text
+Executive Summary
+<2-5 concise paragraphs>
+
+Key Points
+- ...
+
+Risks / Issues
+- ...
+
+Action Items
+- ...
 ```
 
----
+### Detailed Summary
+Best when the user needs more coverage.
 
-## Requirements
-Install dependencies:
+```text
+Overview
+...
+
+Section-wise Summary
+1. Section name
+   - ...
+
+Important Data / Metrics
+- ...
+
+Decisions
+- ...
+
+Action Items
+- ...
+```
+
+## Core Workflow
+
+```python
+from core.pdf_extractor import extract_pdf
+from core.summarizer import summarize_text
+from core.output_formatter import format_summary
+from core.validators import validate_pdf
+
+# 1. Validate the PDF
+passes, info = validate_pdf("document.pdf", verbose=True)
+if not passes:
+    raise ValueError(info.get("error", "PDF validation failed"))
+
+# 2. Extract text
+pdf_data = extract_pdf("document.pdf")
+
+# 3. Create a deterministic baseline summary
+summary = summarize_text(
+    pdf_data["text"],
+    max_sentences=10,
+    focus_terms=None,
+)
+
+# 4. Format the result
+output = format_summary(
+    title=pdf_data.get("title") or "PDF Summary",
+    summary=summary,
+    metadata=pdf_data,
+)
+
+print(output)
+```
+
+## Working with Scanned PDFs
+
+This skill extracts embedded PDF text. If a PDF is image-only or scanned and contains little or no extractable text:
+- Report that OCR is required.
+- Do not pretend that blank extraction means the document is empty.
+- If OCR tooling is available in the environment, OCR the relevant pages first and then summarize the OCR output.
+
+## Available Utilities
+
+### PDF Extractor (`core.pdf_extractor`)
+Extracts text and basic metadata from a PDF:
+
+```python
+from core.pdf_extractor import extract_pdf
+
+data = extract_pdf("document.pdf")
+print(data["page_count"])
+print(data["text"])
+```
+
+Optional page selection:
+
+```python
+data = extract_pdf("document.pdf", pages=[1, 2, 5])
+```
+
+Pages are 1-indexed for convenience.
+
+### Summarizer (`core.summarizer`)
+Provides a local extractive summarizer that does not require an API key:
+
+```python
+from core.summarizer import summarize_text
+
+summary = summarize_text(
+    text,
+    max_sentences=8,
+    focus_terms=["revenue", "risk", "timeline"],
+)
+```
+
+The extractive summarizer is useful as a deterministic baseline. When an LLM is available, prefer semantic summarization while following the grounding rules in this skill.
+
+### Output Formatter (`core.output_formatter`)
+Formats summaries into readable Markdown:
+
+```python
+from core.output_formatter import format_summary
+
+markdown = format_summary(
+    title="Quarterly Report Summary",
+    summary=summary,
+    key_points=["Point A", "Point B"],
+    action_items=["Action A"],
+)
+```
+
+### Validators (`core.validators`)
+Checks that a PDF exists, can be opened, has pages, and contains extractable text:
+
+```python
+from core.validators import validate_pdf, is_pdf_ready
+
+passes, info = validate_pdf("document.pdf", verbose=True)
+
+if is_pdf_ready("document.pdf"):
+    print("Ready to summarize")
+```
+
+## Summary Quality Checklist
+
+Before returning a summary, check that:
+- The summary reflects the actual PDF content.
+- Important numbers, dates, names, and decisions are preserved accurately.
+- Repeated content is consolidated.
+- The level of detail matches the user's request.
+- No unsupported claims have been added.
+- Action items are only included when the document actually contains or clearly implies them.
+- Any unreadable, missing, or image-only content is explicitly noted.
+
+## Philosophy
+
+This skill provides:
+- **Knowledge**: A reliable workflow for PDF summarization.
+- **Utilities**: PDF extraction, validation, baseline summarization, and formatting.
+- **Flexibility**: Supports short, detailed, executive, topic-focused, and page-focused summaries.
+
+It does NOT provide:
+- OCR by itself.
+- Guaranteed extraction from encrypted or damaged PDFs.
+- Automatic factual enrichment from the internet.
+- Permission to infer missing content.
+
+Use the PDF as the source of truth and keep summaries concise, accurate, and useful.
+
+## Dependencies
+
 ```bash
-pip install -r requirements.txt
+pip install pypdf
 ```
-
-### `requirements.txt`
-```
-openai>=1.0.0
-pdfplumber>=0.9.0
-tiktoken>=0.5.0
-python-dotenv>=1.0.0
-```
-
----
-
-## Environment Variables
-Create a `.env` file in the root of the skill directory:
-```
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
----
-
-## Usage
-
-### Basic Usage
-```bash
-python main.py --pdf path/to/document.pdf
-```
-
-### Full Options
-```bash
-python main.py \
-  --pdf path/to/document.pdf \
-  --depth medium \
-  --format bullet \
-  --output summary_output.txt
-```
-
-### Multiple PDFs
-```bash
-python main.py \
-  --pdf file1.pdf file2.pdf file3.pdf \
-  --depth detailed \
-  --format json \
-  --output summaries.json
-```
-
----
-
-## Arguments
-
-| Argument    | Type     | Default   | Description                                                  |
-|-------------|----------|-----------|--------------------------------------------------------------|
-| `--pdf`     | str (list) | required | Path(s) to PDF file(s) to summarise                         |
-| `--depth`   | str      | `medium`  | Summary depth: `short`, `medium`, `detailed`                 |
-| `--format`  | str      | `text`    | Output format: `text`, `bullet`, `json`                      |
-| `--output`  | str      | None      | File path to save the output (optional)                      |
-| `--model`   | str      | `gpt-4o`  | OpenAI model to use                                          |
-| `--keywords`| flag     | False     | Extract and include keywords/themes                          |
-| `--sections`| flag     | False     | Summarise document by detected sections                      |
-
----
-
-## Output Examples
-
-### `--format text`
-```
-SUMMARY OF: annual_report.pdf
-=================================
-This document covers the company's financial performance for FY2024...
-Key Themes: Revenue Growth, Sustainability, Market Expansion
-```
-
-### `--format bullet`
-```
-SUMMARY OF: annual_report.pdf
-• Revenue increased by 18% year-over-year
-• New markets opened in Southeast Asia
-• Sustainability initiatives reduced carbon footprint by 25%
-```
-
-### `--format json`
-```json
-{
-  "file": "annual_report.pdf",
-  "summary": "This document covers...",
-  "keywords": ["revenue", "growth", "sustainability"],
-  "sections": [
-    { "title": "Financial Highlights", "summary": "..." },
-    { "title": "Strategic Goals", "summary": "..." }
-  ]
-}
-```
-
----
-
-## How It Works
-1. **Extract** — `extractor.py` uses `pdfplumber` to pull raw text from each page
-2. **Chunk** — `utils.py` splits long documents into token-safe chunks (respects model context window)
-3. **Summarise** — `summariser.py` sends each chunk to the OpenAI API with a tailored prompt
-4. **Merge** — Multiple chunk summaries are merged into one coherent final summary
-5. **Format & Export** — Output is formatted and optionally saved to a file
-
----
-
-## Notes
-- Very large PDFs are automatically chunked to fit within the model's context window
-- Scanned/image-only PDFs are not supported (text layer required)
-- For best results, use PDFs with selectable text
